@@ -9,3 +9,5 @@ A simple PoC to demonstrate the risk; The HashHarvester (HaHa)
 In order to demonstrate the associated risk, I created a simple PoC. The challenge was to see how hard it would be to extract SAP User Password Hashes from the EDIDC table. When customers use Central User Administration, the replication of users is done via Idocs that might contain password hashes. 
 
 As I would have guessed, it was not hard at all to harvest the password hashes. The only thing needed to harvest the data you are looking for is to know the specific message-type you are looking for, in this case ‘USERCLONE’. Every Masterdata object in SAP has its own message-type that identifies the unique type of data being transferred. Once you know this message-type you can use for example an ABAP program to harvest the data you want. For a quick written example of such a program see the ABAP code herebelow.
+
+Also see https://blogs.sap.com/2014/07/02/about-securing-sap-idocs-i-introduce-to-you-the-haha-but-it-s-not-funny/
